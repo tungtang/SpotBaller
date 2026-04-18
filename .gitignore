@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# App runtime (uploads, job outputs — large)
+runtime/
+
+# Model checkpoints (large binaries — use Git LFS or download scripts if you need them in-repo)
+models/**/*.pt
+*.pt
+*.onnx
+*.engine
+
+# Local test / sample footage (keep folder with .gitkeep only)
+basketball_analysis/input_videos/*
+!basketball_analysis/input_videos/.gitkeep
+
+# OS & editors
+.DS_Store
+.localized
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Optional: uncomment to ignore Cursor project metadata
+# .cursor/

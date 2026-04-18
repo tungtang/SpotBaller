@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Basketball video analytics — model, training & app vision</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a222c;
+      --border: #2d3844;
+      --text: #e8edf2;
+      --muted: #8b9aab;
+      --accent: #3d9cf5;
+      --accent-dim: #2563a8;
+      --ok: #34d399;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 1rem;
+    }
+    .wrap {
+      max-width: 52rem;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 4rem;
+    }
+    h1 {
+      font-size: 1.85rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+      margin: 0 0 0.5rem;
+      line-height: 1.25;
+    }
+    .lede {
+      color: var(--muted);
+      font-size: 1.05rem;
+      margin: 0 0 2rem;
+    }
+    h2 {
+      font-size: 1.25rem;
+      margin: 2.25rem 0 0.75rem;
+      padding-bottom: 0.35rem;
+      border-bottom: 1px solid var(--border);
+      color: #fff;
+    }
+    h3 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; color: #cbd5e1; }
+    p { margin: 0.65rem 0; }
+    ul, ol { margin: 0.5rem 0 0.75rem; padding-left: 1.35rem; }
+    li { margin: 0.35rem 0; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code, .mono {
+      font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+      font-size: 0.88em;
+      background: var(--surface);
+      padding: 0.15em 0.45em;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.1rem;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+    pre code { background: none; border: none; padding: 0; font-size: inherit; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.15rem;
+      margin: 1rem 0;
+    }
+    .card strong { color: #fff; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      margin: 0.75rem 0;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.55rem 0.65rem;
+      border: 1px solid var(--border);
+    }
+    th { background: #141b24; color: var(--muted); font-weight: 600; }
+    .tag {
+      display: inline-block;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0.2em 0.5em;
+      border-radius: 4px;
+      background: var(--accent-dim);
+      color: #dbeafe;
+      margin-right: 0.35rem;
+      vertical-align: middle;
+    }
+    .goal {
+      border-left: 3px solid var(--ok);
+      padding-left: 1rem;
+      margin: 1.25rem 0;
+    }
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Basketball video analytics</h1>
+    <p class="lede">
+      How detection models fit your pipeline, how to train or fine-tune them, which checkpoints help,
+      and how that supports an app that turns game footage into per-player fundamentals.
+    </p>
+
+    <h2>1. How the model works (in your stack)</h2>
+    <p>
+      Your project centers on <strong>Ultralytics YOLOv8</strong>: a single-stage object detector that
+      predicts bounding boxes and class labels in one forward pass per frame. The checkpoint
+      <code>models/e-bard/BODD_yolov8n_0001.pt</code> comes from the
+      <span class="tag">E-BARD</span> basketball detection family (Hugging Face:
+      <a href="https://huggingface.co/GabrieleGiudici/E-BARD-detection-models" rel="noopener">GabrieleGiudici/E-BARD-detection-models</a>),
+      trained for court-relevant objects rather than generic COCO classes.
+    </p>
+    <div class="card">
+      <strong>What one frame looks like to the model</strong>
+      <ul>
+        <li>Input: a resized image tensor (training defaults use <code>imgsz=1280</code> in your scripts).</li>
+        <li>Output: boxes, scores, and class IDs for objects the head was trained on.</li>
+        <li>Your dataset config (<code>app/ml/yolo_data.yaml</code>) defines classes:
+          <code>player</code>, <code>ball</code>, <code>rim</code>, <code>jersey_number</code> — the deployed E-BARD
+          weights may use a subset; align labels when you fine-tune.</li>
+      </ul>
+    </div>
+    <p>
+      <strong>Detection alone is not “stats.”</strong> The app turns boxes into analytics by chaining:
+    </p>
+    <ol>
+      <li><strong>Tracking</strong> (e.g. ByteTrack) — stable IDs across frames for each player and the ball.</li>
+      <li><strong>Identity</strong> — jersey OCR and team clustering so “player 7” maps to a real role on a team.</li>
+      <li><strong>Events</strong> — shot attempts, makes/misses, possession changes from geometry + ball proximity.</li>
+      <li><strong>Aggregation</strong> — minutes, touches, FGA/FGM, and team splits exported as JSON.</li>
+    </ol>
+    <p>
+      That matches your MVP spec: fixed-camera full-court or similar footage, with quality targets on
+      detector mAP, track continuity, and stat error vs manual labels.
+    </p>
+
+    <h2>2. How you can train (or fine-tune)</h2>
+    <p>
+      Training uses the Ultralytics API. Your repo provides two entry points:
+    </p>
+    <ul>
+      <li>
+        <code>python -m app.ml.train_yolov8</code> — trains from a base checkpoint with
+        <code>--data app/ml/yolo_data.yaml</code>, default <code>--epochs 100</code>,
+        <code>--imgsz 1280</code>, output under <code>runs/basketball/</code>.
+      </li>
+      <li>
+        <code>python -m app.ml.train_iteration --name iter1 --model models/e-bard/BODD_yolov8n_0001.pt</code> —
+        wraps an iteration workflow starting from E-BARD (see <code>docs/model_training_plan_2weeks.md</code>).
+      </li>
+    </ul>
+    <p><strong>Prerequisites:</strong></p>
+    <ul>
+      <li>Labeled images in YOLO format and split manifests:
+        <code>data/splits/train.txt</code>, <code>val.txt</code>, <code>test.txt</code> (paths referenced in <code>yolo_data.yaml</code>).</li>
+      <li>Python env with <code>ultralytics</code> installed (<code>pip install -r requirements.txt</code> per README).</li>
+    </ul>
+    <p>Example direct training invocation (from project root):</p>
+    <pre><code>python -m app.ml.train_yolov8 \
+  --model models/e-bard/BODD_yolov8n_0001.pt \
+  --data app/ml/yolo_data.yaml \
+  --epochs 100 \
+  --imgsz 1280</code></pre>
+    <p>
+      On Apple Silicon, <code>train_yolov8.py</code> uses <code>device="mps"</code>. For Linux/NVIDIA,
+      adjust device in the script or use Ultralytics’ default CUDA auto-selection.
+    </p>
+    <p>
+      After deployment, improve data iteratively: <code>error_mining</code> uses calibration reports to
+      surface hard clips for re-labeling (see README “Model training workflow”).
+    </p>
+
+    <h2>3. Pre-trained models you can leverage</h2>
+    <p>
+      Layer these by responsibility — no single model delivers full player strengths/weaknesses; you
+      combine specialized checkpoints.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>Role</th>
+          <th>What to use</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Player / ball / rim detection</td>
+          <td><strong>E-BARD</strong> <code>BODD_yolov8n_0001.pt</code></td>
+          <td>Basketball-tuned YOLOv8n; your default when file is present (<code>weights=auto</code>).</td>
+        </tr>
+        <tr>
+          <td>Generic YOLOv8 baseline</td>
+          <td><code>yolov8n.pt</code> … <code>yolov8x.pt</code> (Ultralytics)</td>
+          <td>Fallback or transfer starting point; not sport-specific — fine-tune on your labels.</td>
+        </tr>
+        <tr>
+          <td>Multi-object tracking</td>
+          <td><strong>ByteTrack</strong></td>
+          <td>Stable IDs from detections; your pipeline defaults to ByteTrack with centroid fallback.</td>
+        </tr>
+        <tr>
+          <td>Jersey numbers</td>
+          <td>PARSeq-style STR / sports OCR fine-tunes</td>
+          <td>Tracklet voting + confidence filtering for stable numbers.</td>
+        </tr>
+        <tr>
+          <td>Team assignment</td>
+          <td>SigLIP / CLIP embeddings + clustering</td>
+          <td>Jersey appearance → team buckets (see <code>player_identity_map.json</code> in your stack).</td>
+        </tr>
+        <tr>
+          <td>Action verification (optional)</td>
+          <td>VideoMAE / 3D CNN classifiers</td>
+          <td>Helps verify passes, blocks, steals beyond geometry-only rules.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      Hugging Face hosts many sport and pose models; for <em>your</em> repo’s first integration,
+      the explicit shortlist names
+      <a href="https://huggingface.co/GabrieleGiudici/E-BARD-detection-models" rel="noopener">E-BARD detection models</a>
+      as the primary basketball detector.
+    </p>
+
+    <h2>4. End goal: upload games → fundamentals per player</h2>
+    <div class="goal">
+      <p><strong>Product shape</strong></p>
+      <ul>
+        <li>Upload MP4 from different teams/cameras (target: 1080p, ≥30 FPS, H.264).</li>
+        <li>Backend job: detect → track → identify → events → calibrated stats.</li>
+        <li>Outputs: per-player minutes, touches, FGA/FGM, possession-related signals; team rollups in
+          <code>team_box_score.json</code>-style artifacts.</li>
+        <li>UI: FastAPI + Streamlit dashboard (already scaffolded) for review and iteration.</li>
+      </ul>
+      <p><strong>“Strengths & weaknesses”</strong> builds on fundamentals: shooting efficiency under volume,
+        time on ball vs turnovers proxy, defensive events when you add action models — start with MVP
+        stats, then layer shot charts and role tags as data quality improves.</p>
+    </div>
+
+    <h3>Quick commands (from your README)</h3>
+    <pre><code># API
+uvicorn app.api.main:app --reload
+
+# Dashboard
+streamlit run app/ui/dashboard.py
+
+# Local pipeline CLI
+python -m app.run_local --video path/to/video.mp4</code></pre>
+
+    <footer>
+      Generated for the Basketball Video Analytics workspace. Class names and scripts reference
+      <code>app/ml/yolo_data.yaml</code>, <code>README.md</code>, and <code>docs/mvp_spec.md</code>.
+    </footer>
+  </div>
+</body>
+</html>
