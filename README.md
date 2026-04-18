@@ -95,12 +95,19 @@ Local-first and web-deployable basketball video analytics app built around YOLOv
 
 ## Git (version control)
 
-This repo ignores large artifacts: `runtime/`, `*.pt` weights, and `basketball_analysis/input_videos/*` (place videos locally). After `git init`, connect your GitHub account:
+This repo ignores large artifacts: `runtime/`, `*.pt` weights, and `basketball_analysis/input_videos/*` (place videos and weights locally). The former nested `basketball_analysis` git repo was merged into this repo as a single project.
+
+Set your name and email for commits (once per machine or use `--local` in this repo only), then add GitHub:
 
 ```bash
+cd /path/to/Documents
+git config --local user.name "Your Name"
+git config --local user.email "you@example.com"
+
 git remote add origin git@github.com:YOUR_USERNAME/YOUR_REPO_NAME.git
-git branch -M main
 git push -u origin main
 ```
 
-Use SSH (`git@github.com:...`) if your SSH key is added to GitHub, or HTTPS with a personal access token. To create a new empty repo on GitHub: **New repository** (no README), then run the commands above.
+Use SSH (`git@github.com:...`) if your SSH key is [added to GitHub](https://github.com/settings/keys), or HTTPS with a [personal access token](https://github.com/settings/tokens). Create an empty repo on GitHub (**New repository**, no README), then run the commands above.
+
+If you use GitHub CLI: `gh repo create YOUR_REPO_NAME --private --source=. --remote=origin --push`
