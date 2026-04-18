@@ -9,7 +9,7 @@ import requests
 import streamlit as st
 
 st.set_page_config(
-    page_title="Basketball Video Analytics",
+    page_title="SpotBaller · Analytics",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -73,7 +73,9 @@ with st.sidebar:
         st.success("API reachable")
     else:
         st.warning("Cannot reach `/health` — start the API (`uvicorn app.api.main:app`).")
-    st.markdown(f"[Browse all jobs in browser]({api_base}/results) — annotated video + JSON.")
+    st.markdown(
+        f"[Web app home]({api_base}/) · [All results]({api_base}/results) (API jobs + CLI runs) — video, stats, JSON."
+    )
 
     st.divider()
     st.header("Processing")
@@ -93,7 +95,7 @@ with st.sidebar:
         except Exception as exc:
             st.caption(f"Could not load: {exc}")
 
-st.title("Basketball video analytics")
+st.title("SpotBaller")
 st.caption(
     "Upload game footage, run the full detection → tracking → identity → stats pipeline, "
     "and review per-player and team outputs."

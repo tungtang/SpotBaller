@@ -5,6 +5,7 @@ HTML report pages and safe static file serving for job outputs (browser-friendly
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from html import escape
 from pathlib import Path
 
@@ -27,6 +28,167 @@ ALLOWED_JOB_FILES = frozenset(
     }
 )
 
+# --- Shared design system (dark, high-contrast, responsive) ---
+SHARED_CSS = """
+:root {
+  --bg: #0c0f14;
+  --surface: #151a22;
+  --surface2: #1c2330;
+  --border: #2a3444;
+  --text: #e8edf4;
+  --muted: #8b9aaf;
+  --accent: #3b82f6;
+  --accent-dim: #2563eb;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --radius: 12px;
+  --shadow: 0 8px 32px rgba(0,0,0,.35);
+  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+  min-height: 100vh;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.wrap { max-width: 72rem; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
+
+/* Top bar */
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(12,15,20,.92);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  padding: 0.65rem 0;
+  margin: 0 -1.25rem 1.5rem;
+  padding-left: 1.25rem; padding-right: 1.25rem;
+}
+.topbar-inner {
+  max-width: 72rem; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;
+}
+.brand {
+  font-weight: 700; font-size: 1.05rem; letter-spacing: -0.02em;
+  color: var(--text) !important; text-decoration: none !important;
+}
+.brand span { color: var(--accent); }
+.nav-links { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+.nav-links a {
+  padding: 0.45rem 0.85rem; border-radius: 8px; font-size: 0.9rem;
+  color: var(--muted) !important; text-decoration: none !important;
+}
+.nav-links a:hover { background: var(--surface2); color: var(--text) !important; }
+.nav-links a.active { background: var(--surface2); color: var(--accent) !important; font-weight: 600; }
+
+h1 { font-size: 1.65rem; font-weight: 700; letter-spacing: -0.03em; margin: 0 0 0.35rem; }
+h2 { font-size: 1.15rem; font-weight: 600; margin: 2rem 0 0.75rem; color: #f1f5f9; }
+.lede { color: var(--muted); font-size: 1rem; margin: 0 0 1.5rem; max-width: 42rem; }
+
+/* Cards */
+.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.15rem 1.25rem;
+  box-shadow: var(--shadow);
+  transition: border-color .15s, transform .15s;
+}
+.card:hover { border-color: #3d4f66; transform: translateY(-2px); }
+.card h3 { margin: 0 0 0.4rem; font-size: 1rem; font-weight: 600; }
+.card p { margin: 0; font-size: 0.88rem; color: var(--muted); }
+.card .cta { display: inline-block; margin-top: 0.85rem; font-weight: 600; font-size: 0.9rem; }
+
+/* Hero */
+.hero {
+  padding: 1.5rem 0 0.5rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.75rem;
+}
+.hero-badge {
+  display: inline-block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--accent); background: rgba(59,130,246,.12); padding: 0.25rem 0.55rem; border-radius: 6px; margin-bottom: 0.75rem;
+}
+
+/* Result rows / job list */
+.section { margin-bottom: 2.25rem; }
+.section-head {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.section-head h2 { margin: 0; }
+.search {
+  padding: 0.5rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-size: 0.9rem; min-width: 200px; max-width: 100%;
+}
+.search::placeholder { color: var(--muted); }
+.job-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.job-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.85rem 1rem; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; flex-wrap: wrap;
+}
+.job-row:hover { border-color: #3d4f66; }
+.job-row a.main { font-weight: 600; font-family: ui-monospace, monospace; font-size: 0.88rem; word-break: break-all; }
+.job-meta { font-size: 0.8rem; color: var(--muted); }
+.pill { font-size: 0.72rem; padding: 0.2rem 0.5rem; border-radius: 999px; font-weight: 600; }
+.pill.ok { background: rgba(52,211,153,.15); color: var(--success); }
+.pill.pending { background: rgba(251,191,36,.12); color: var(--warning); }
+
+/* Job report */
+.breadcrumb { font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem; }
+.breadcrumb a { color: var(--muted); }
+.breadcrumb a:hover { color: var(--accent); }
+
+.subnav {
+  display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 1rem 0 1.5rem;
+  padding: 0.35rem; background: var(--surface); border-radius: 10px; border: 1px solid var(--border);
+}
+.subnav a {
+  padding: 0.45rem 0.75rem; border-radius: 7px; font-size: 0.85rem; color: var(--muted) !important;
+  text-decoration: none !important;
+}
+.subnav a:hover { background: var(--surface2); color: var(--text) !important; }
+
+.video-card {
+  background: #000; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border);
+  margin: 0.5rem 0 1rem;
+}
+video { width: 100%; max-height: 72vh; display: block; vertical-align: middle; }
+
+table.data-table { border-collapse: collapse; width: 100%; font-size: 0.85rem; margin: 0.75rem 0; }
+table.data-table th, table.data-table td { border: 1px solid var(--border); padding: 0.5rem 0.65rem; text-align: left; }
+table.data-table th { background: var(--surface2); color: var(--muted); font-weight: 600; }
+table.data-table tbody tr:nth-child(even) { background: rgba(255,255,255,.02); }
+table.data-table tbody tr:hover { background: rgba(59,130,246,.06); }
+
+code { background: var(--surface2); padding: 0.12em 0.4em; border-radius: 5px; font-size: 0.86em; }
+pre.json {
+  overflow: auto; max-height: 22rem; background: #0a0d12; padding: 1rem; border-radius: 10px;
+  font-size: 0.78rem; border: 1px solid var(--border); line-height: 1.45;
+}
+details { margin: 0.6rem 0; border: 1px solid var(--border); border-radius: 10px; padding: 0.5rem 1rem; background: var(--surface); }
+details summary { cursor: pointer; font-weight: 600; padding: 0.35rem 0; }
+.file-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.file-links a {
+  display: inline-block; padding: 0.4rem 0.75rem; background: var(--surface2);
+  border-radius: 8px; font-size: 0.85rem; border: 1px solid var(--border);
+}
+.file-links a:hover { border-color: var(--accent); text-decoration: none; }
+.muted { color: var(--muted); font-size: 0.9rem; }
+footer.page {
+  margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
+  font-size: 0.8rem; color: var(--muted);
+}
+.empty { padding: 2rem; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: var(--radius); }
+"""
+
 
 def resolve_job_dir(job_root: Path, job_id: str) -> Path:
     """Ensure job directory exists and stays under job_root (no path traversal)."""
@@ -40,6 +202,25 @@ def resolve_job_dir(job_root: Path, job_id: str) -> Path:
         raise HTTPException(status_code=400, detail="Invalid job path") from exc
     if not resolved.is_dir():
         raise HTTPException(status_code=404, detail="Job not found")
+    return resolved
+
+
+def resolve_local_run_dir(runtime_root: Path, run_id: str) -> Path:
+    """CLI outputs under runtime/<run_id>/ (e.g. smoke tests). Excludes jobs/ and uploads/."""
+    if not run_id or ".." in run_id or "/" in run_id or "\\" in run_id:
+        raise HTTPException(status_code=400, detail="Invalid run id")
+    if run_id in ("jobs", "uploads"):
+        raise HTTPException(status_code=404, detail="Use /results for API jobs")
+    resolved = (runtime_root / run_id).resolve()
+    root = runtime_root.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid path") from exc
+    if not resolved.is_dir():
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not (resolved / "stats.json").is_file():
+        raise HTTPException(status_code=404, detail="No stats in this folder")
     return resolved
 
 
@@ -69,53 +250,192 @@ def _read_json(path: Path) -> dict | list | None:
         return None
 
 
-def build_jobs_index_html(job_root: Path, results_prefix: str = "/results") -> str:
-    rows: list[str] = []
-    if job_root.is_dir():
-        for p in sorted(job_root.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+def _fmt_time(ts: float) -> str:
+    try:
+        return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return ""
+
+
+def build_landing_html() -> HTMLResponse:
+    return HTMLResponse(
+        f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="color-scheme" content="dark"/>
+  <title>SpotBaller · Basketball analytics</title>
+  <style>{SHARED_CSS}</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="/">Spot<span>Baller</span></a>
+        <nav class="nav-links" aria-label="Primary">
+          <a href="/" class="active">Home</a>
+          <a href="/results">Results</a>
+          <a href="/docs">API</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="hero">
+      <div class="hero-badge">Local-first pipeline</div>
+      <h1>Basketball video analytics</h1>
+      <p class="lede">Upload games, run detection and tracking, then explore annotated video, per-player stats, and exports in your browser.</p>
+    </div>
+
+    <div class="grid">
+      <article class="card">
+        <h3>Results hub</h3>
+        <p>Browse API jobs and CLI runs (smoke tests). Watch annotated video and download JSON.</p>
+        <a class="cta" href="/results">Open results →</a>
+      </article>
+      <article class="card">
+        <h3>REST API</h3>
+        <p>Upload videos, create jobs, fetch stats and team breakdowns programmatically.</p>
+        <a class="cta" href="/docs">OpenAPI docs →</a>
+      </article>
+      <article class="card">
+        <h3>Health</h3>
+        <p>Quick JSON check that the server is up.</p>
+        <a class="cta" href="/health">GET /health →</a>
+      </article>
+      <article class="card">
+        <h3>Streamlit UI</h3>
+        <p>Richer upload and charts (separate process). Run: <code>streamlit run app/ui/dashboard.py</code></p>
+        <a class="cta" href="http://127.0.0.1:8501" target="_blank" rel="noopener">Open localhost:8501 →</a>
+      </article>
+    </div>
+
+    <footer class="page">SpotBaller · FastAPI + YOLOv8 pipeline</footer>
+  </div>
+</body>
+</html>"""
+    )
+
+
+def build_combined_index_html(runtime_root: Path, job_dir: Path) -> str:
+    """Jobs from runtime/jobs + local runs (other dirs with stats.json)."""
+    api_rows: list[str] = []
+    if job_dir.is_dir():
+        for p in sorted(job_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
             if not p.is_dir():
                 continue
             jid = escape(p.name)
             done = (p / "stats.json").is_file()
-            badge = "✓" if done else "…"
-            rows.append(
-                f'<li><span class="badge">{badge}</span> '
-                f'<a href="{results_prefix}/{jid}">{jid}</a></li>'
+            ts = _fmt_time(p.stat().st_mtime)
+            pill = '<span class="pill ok">Ready</span>' if done else '<span class="pill pending">In progress</span>'
+            api_rows.append(
+                f'<div class="job-row" data-search="{jid.lower()}">'
+                f'<div><a class="main" href="/results/{jid}">{jid}</a>'
+                f'<div class="job-meta">{escape(ts)} · API job</div></div><div>{pill}</div></div>'
             )
-    body = "\n".join(rows) if rows else "<li>No jobs yet. Upload and process a video via the API or Streamlit UI.</li>"
+
+    local_rows: list[str] = []
+    if runtime_root.is_dir():
+        for p in sorted(runtime_root.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+            if not p.is_dir() or p.name in ("jobs", "uploads"):
+                continue
+            if not (p / "stats.json").is_file():
+                continue
+            rid = escape(p.name)
+            ts = _fmt_time(p.stat().st_mtime)
+            local_rows.append(
+                f'<div class="job-row" data-search="{rid.lower()}">'
+                f'<div><a class="main" href="/results/local/{rid}">{rid}</a>'
+                f'<div class="job-meta">{escape(ts)} · CLI / local output</div></div>'
+                f'<div><span class="pill ok">Ready</span></div></div>'
+            )
+
+    api_block = (
+        "".join(api_rows)
+        if api_rows
+        else '<div class="empty">No API jobs yet. POST /videos and /jobs, or use the Streamlit UI.</div>'
+    )
+    local_block = (
+        "".join(local_rows)
+        if local_rows
+        else '<div class="empty">No local runs found. Use <code>python -m app.run_local --out runtime/my_run</code>.</div>'
+    )
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Analysis jobs</title>
-  <style>
-    body {{ font-family: system-ui, sans-serif; max-width: 56rem; margin: 2rem auto; padding: 0 1rem;
-      background: #0f1419; color: #e8edf2; }}
-    a {{ color: #3d9cf5; }}
-    h1 {{ font-size: 1.5rem; }}
-    ul {{ list-style: none; padding: 0; }}
-    li {{ padding: 0.5rem 0; border-bottom: 1px solid #2d3844; }}
-    .badge {{ color: #34d399; margin-right: 0.5rem; }}
-    .nav {{ margin-bottom: 1.5rem; }}
-    .nav a {{ margin-right: 1rem; }}
-  </style>
+  <meta name="color-scheme" content="dark"/>
+  <title>Results · SpotBaller</title>
+  <style>{SHARED_CSS}</style>
 </head>
 <body>
-  <nav class="nav">
-    <a href="/">Home</a>
-    <a href="/docs">API docs</a>
-    <a href="{results_prefix}">All jobs</a>
-  </nav>
-  <h1>Analysis jobs</h1>
-  <p>Open a job to watch the annotated video and inspect JSON outputs in the browser.</p>
-  <ul>{body}</ul>
+  <div class="wrap">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="/">Spot<span>Baller</span></a>
+        <nav class="nav-links" aria-label="Primary">
+          <a href="/">Home</a>
+          <a href="/results" class="active">Results</a>
+          <a href="/docs">API</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="hero">
+      <h1>Results</h1>
+      <p class="lede">Open any run to view annotated video, stats tables, and JSON exports. Filter the list below.</p>
+    </div>
+
+    <label class="muted" for="q" style="display:block;margin-bottom:0.35rem;">Filter</label>
+    <input type="search" id="q" class="search" placeholder="Search by id or name…" autocomplete="off"
+      style="width:100%;max-width:28rem;margin-bottom:2rem;"/>
+
+    <section class="section" aria-labelledby="api-heading">
+      <div class="section-head">
+        <h2 id="api-heading">API jobs</h2>
+      </div>
+      <div class="job-list" id="list-api">{api_block}</div>
+    </section>
+
+    <section class="section" aria-labelledby="local-heading">
+      <div class="section-head">
+        <h2 id="local-heading">Local &amp; CLI runs</h2>
+      </div>
+      <p class="muted" style="margin-top:-0.5rem;margin-bottom:1rem;">Folders under <code>runtime/</code> with <code>stats.json</code> (e.g. smoke tests).</p>
+      <div class="job-list" id="list-local">{local_block}</div>
+    </section>
+
+    <footer class="page"><a href="/">← Home</a> · <a href="/docs">API docs</a></footer>
+  </div>
+  <script>
+    (function() {{
+      const q = document.getElementById('q');
+      function filter() {{
+        const term = (q.value || '').toLowerCase().trim();
+        document.querySelectorAll('.job-row').forEach(function(row) {{
+          const hay = (row.getAttribute('data-search') || '');
+          row.style.display = !term || hay.includes(term) ? '' : 'none';
+        }});
+      }}
+      q.addEventListener('input', filter);
+    }})();
+  </script>
 </body>
 </html>"""
 
 
-def build_job_report_html(job_id: str, job_dir: Path, media_prefix: str) -> HTMLResponse:
-    """Single-page report: video, key metrics, collapsible JSON."""
+def build_job_report_html(
+    job_id: str,
+    job_dir: Path,
+    media_prefix: str,
+    *,
+    report_kind: str = "job",
+    breadcrumb_href: str = "/results",
+    breadcrumb_label: str = "Results",
+) -> HTMLResponse:
+    """Single-page report: video, stats, collapsible JSON, sticky section nav."""
     stats = _read_json(job_dir / "stats.json")
     pipeline = _read_json(job_dir / "pipeline.json")
     team = _read_json(job_dir / "team_box_score.json")
@@ -129,7 +449,6 @@ def build_job_report_html(job_id: str, job_dir: Path, media_prefix: str) -> HTML
     video_url = f"{media_prefix}/file/annotated.mp4"
     has_video = (job_dir / "annotated.mp4").is_file()
 
-    # Compact stats summary table
     table_html = ""
     if isinstance(stats, list) and stats:
         keys = [k for k in stats[0].keys() if k in ("player_id", "minutes_on_court", "pts", "fga", "fgm", "fg_pct", "touches")]
@@ -137,12 +456,12 @@ def build_job_report_html(job_id: str, job_dir: Path, media_prefix: str) -> HTML
             keys = list(stats[0].keys())[:12]
         thead = "".join(f"<th>{escape(str(k))}</th>" for k in keys)
         trs = []
-        for row in stats[:50]:
+        for row in stats[:80]:
             cells = "".join(f"<td>{escape(str(row.get(k, '')))}</td>" for k in keys)
             trs.append(f"<tr>{cells}</tr>")
-        table_html = f"<table><thead><tr>{thead}</tr></thead><tbody>{''.join(trs)}</tbody></table>"
-        if len(stats) > 50:
-            table_html += f"<p class='muted'>Showing 50 of {len(stats)} rows. Download <code>stats.json</code> for full data.</p>"
+        table_html = f'<table class="data-table"><thead><tr>{thead}</tr></thead><tbody>{"".join(trs)}</tbody></table>'
+        if len(stats) > 80:
+            table_html += f"<p class='muted'>Showing 80 of {len(stats)} rows.</p>"
 
     def block(title: str, data: object) -> str:
         if data is None:
@@ -153,105 +472,107 @@ def build_job_report_html(job_id: str, job_dir: Path, media_prefix: str) -> HTML
 
     hints_note = ""
     if isinstance(hints, list) and hints:
-        hints_note = f"<p class='muted'>{len(hints)} sampled SigLIP action frames. See JSON below.</p>"
+        hints_note = f"<p class='muted'>{len(hints)} sampled SigLIP action frames.</p>"
 
     jid = escape(job_id)
+    kind_label = "API job" if report_kind == "job" else "Local run"
+
     html_page = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Job {jid}</title>
-  <style>
-    body {{ font-family: system-ui, sans-serif; max-width: 60rem; margin: 0 auto; padding: 1rem 1.25rem 3rem;
-      background: #0f1419; color: #e8edf2; line-height: 1.5; }}
-    a {{ color: #3d9cf5; }}
-    code {{ background: #1a222c; padding: 0.15em 0.4em; border-radius: 4px; }}
-    .nav {{ margin-bottom: 1rem; font-size: 0.95rem; }}
-    .nav a {{ margin-right: 1rem; }}
-    h1 {{ font-size: 1.35rem; margin-bottom: 0.25rem; }}
-    .status {{ color: #94a3b8; margin-bottom: 1.25rem; }}
-    video {{ width: 100%; max-height: 70vh; background: #000; border-radius: 8px; }}
-    .muted {{ color: #94a3b8; font-size: 0.9rem; }}
-    table {{ border-collapse: collapse; width: 100%; font-size: 0.88rem; margin: 1rem 0; }}
-    th, td {{ border: 1px solid #2d3844; padding: 0.4rem 0.5rem; text-align: left; }}
-    th {{ background: #141b24; color: #94a3b8; }}
-    pre.json {{ overflow: auto; max-height: 24rem; background: #111820; padding: 1rem; border-radius: 8px;
-      font-size: 0.8rem; border: 1px solid #2d3844; }}
-    details {{ margin: 0.75rem 0; }}
-    summary {{ cursor: pointer; font-weight: 600; }}
-    .files {{ display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; margin-top: 1rem; }}
-  </style>
+  <meta name="color-scheme" content="dark"/>
+  <title>{jid} · SpotBaller</title>
+  <style>{SHARED_CSS}</style>
 </head>
 <body>
-  <nav class="nav">
-    <a href="/">Home</a>
-    <a href="/results">All jobs</a>
-    <a href="/docs">API docs</a>
-  </nav>
-  <h1>Job <code>{jid}</code></h1>
-  <p class="status">Status: <strong>{escape(status)}</strong></p>
+  <div class="wrap">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="/">Spot<span>Baller</span></a>
+        <nav class="nav-links" aria-label="Primary">
+          <a href="/">Home</a>
+          <a href="/results" class="active">Results</a>
+          <a href="/docs">API</a>
+        </nav>
+      </div>
+    </header>
 
-  <h2>Annotated video</h2>
-  {"<video src='" + video_url + "' controls playsinline></video>" if has_video else "<p class='muted'>No annotated.mp4 yet (job running or failed).</p>"}
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="/">Home</a> / <a href="{escape(breadcrumb_href)}">{escape(breadcrumb_label)}</a> / <span>{jid}</span>
+    </nav>
 
-  <h2>Player stats (preview)</h2>
-  {table_html if table_html else "<p class='muted'>No stats.json yet.</p>"}
+    <h1 style="margin-bottom:0.25rem;"><code>{jid}</code></h1>
+    <p class="muted" style="margin-top:0;">{escape(kind_label)} · Status: <strong>{escape(status)}</strong></p>
 
-  <h2>Pipeline</h2>
-  {block("pipeline.json", pipeline)}
+    <nav class="subnav" aria-label="Page sections">
+      <a href="#video">Video</a>
+      <a href="#stats">Stats</a>
+      <a href="#team">Team</a>
+      <a href="#pipeline">Pipeline</a>
+      <a href="#hints">Hints</a>
+      <a href="#exports">Exports</a>
+    </nav>
 
-  <h2>Team box score</h2>
-  {block("team_box_score.json", team)}
+    <section id="video">
+      <h2>Annotated video</h2>
+      {"<div class='video-card'><video src='" + video_url + "' controls playsinline preload='metadata'></video></div>" if has_video else "<p class='muted'>No annotated.mp4 yet.</p>"}
+    </section>
 
-  <h2>Action hints</h2>
-  {hints_note}
-  {block("action_hints.json", hints)}
+    <section id="stats">
+      <h2>Player stats</h2>
+      {table_html if table_html else "<p class='muted'>No stats.json yet.</p>"}
+    </section>
 
-  <h2>Raw exports</h2>
-  <p class="muted">Download or open in a new tab:</p>
-  <div class="files">
-    <a href="{media_prefix}/file/stats.json" target="_blank">stats.json</a>
-    <a href="{media_prefix}/file/events.json" target="_blank">events.json</a>
-    <a href="{media_prefix}/file/tracks.json" target="_blank">tracks.json</a>
-    <a href="{media_prefix}/file/player_identity_map.json" target="_blank">player_identity_map.json</a>
-    <a href="{media_prefix}/file/pipeline.json" target="_blank">pipeline.json</a>
-    <a href="{media_prefix}/file/stats.csv" target="_blank">stats.csv</a>
-    <a href="{media_prefix}/file/job.json" target="_blank">job.json</a>
+    <section id="team">
+      <h2>Team box score</h2>
+      {block("team_box_score.json", team)}
+    </section>
+
+    <section id="pipeline">
+      <h2>Pipeline</h2>
+      {block("pipeline.json", pipeline)}
+    </section>
+
+    <section id="hints">
+      <h2>Action hints</h2>
+      {hints_note}
+      {block("action_hints.json", hints)}
+    </section>
+
+    <section id="exports">
+      <h2>Download exports</h2>
+      <p class="muted">Open in a new tab or save:</p>
+      <div class="file-links">
+        <a href="{media_prefix}/file/stats.json" target="_blank" rel="noopener">stats.json</a>
+        <a href="{media_prefix}/file/events.json" target="_blank" rel="noopener">events.json</a>
+        <a href="{media_prefix}/file/tracks.json" target="_blank" rel="noopener">tracks.json</a>
+        <a href="{media_prefix}/file/player_identity_map.json" target="_blank" rel="noopener">player_identity_map</a>
+        <a href="{media_prefix}/file/pipeline.json" target="_blank" rel="noopener">pipeline.json</a>
+        <a href="{media_prefix}/file/stats.csv" target="_blank" rel="noopener">stats.csv</a>
+        <a href="{media_prefix}/file/job.json" target="_blank" rel="noopener">job.json</a>
+      </div>
+    </section>
+
+    <section>
+      <h2>Job payload</h2>
+      {block("job.json", job_meta)}
+    </section>
+
+    <footer class="page"><a href="{escape(breadcrumb_href)}">← {escape(breadcrumb_label)}</a></footer>
   </div>
-
-  <h2>Full job payload</h2>
-  {block("job.json", job_meta)}
 </body>
 </html>"""
     return HTMLResponse(content=html_page)
 
 
+# Backwards compatibility
 def landing_html() -> HTMLResponse:
-    return HTMLResponse(
-        """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Basketball Video Analytics</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem;
-      background: #0f1419; color: #e8edf2; line-height: 1.6; }
-    a { color: #3d9cf5; }
-    h1 { font-size: 1.6rem; }
-    ul { padding-left: 1.2rem; }
-  </style>
-</head>
-<body>
-  <h1>Basketball Video Analytics</h1>
-  <p>Use the API to upload videos and run analysis, then browse results here.</p>
-  <ul>
-    <li><a href="/results">Browse analysis results</a> — video + stats + JSON in the browser</li>
-    <li><a href="/docs">OpenAPI / Swagger docs</a></li>
-    <li><a href="/health">Health check</a> (JSON)</li>
-  </ul>
-  <p style="color:#94a3b8;font-size:0.9rem">Streamlit UI: run <code>streamlit run app/ui/dashboard.py</code></p>
-</body>
-</html>"""
-    )
+    return build_landing_html()
+
+
+def build_jobs_index_html(job_root: Path, results_prefix: str = "/results") -> str:
+    """Deprecated single-list; use build_combined_index_html."""
+    _ = results_prefix
+    return build_combined_index_html(job_root.parent, job_root)

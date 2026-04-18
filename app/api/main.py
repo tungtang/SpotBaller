@@ -16,11 +16,12 @@ from app.api.worker import process_job
 from app.pipeline.pretrained_stack import pipeline_config_from_flags
 from app.pipeline.video_analyzer import run_video_analysis
 from app.api.web_report import (
+    build_combined_index_html,
     build_job_report_html,
-    build_jobs_index_html,
+    build_landing_html,
     job_file_response,
-    landing_html,
     resolve_job_dir,
+    resolve_local_run_dir,
 )
 
 app = FastAPI(title="Basketball Video Analytics API")
@@ -48,13 +49,31 @@ def try_upsert_job(job_id: str, mode: str, status: str, video_path: str, result_
 @app.get("/", response_class=HTMLResponse)
 def root_page() -> HTMLResponse:
     """Landing page with links to browse results and API docs."""
-    return landing_html()
+    return build_landing_html()
 
 
 @app.get("/results", response_class=HTMLResponse)
 def browse_results_index() -> HTMLResponse:
-    """List all jobs under runtime/jobs with links to per-job report pages."""
-    return HTMLResponse(content=build_jobs_index_html(JOB_DIR))
+    """List API jobs and local CLI runs under runtime/."""
+    return HTMLResponse(content=build_combined_index_html(BASE_DIR, JOB_DIR))
+
+
+@app.get("/results/local/{run_id}", response_class=HTMLResponse)
+def browse_local_report(run_id: str) -> HTMLResponse:
+    """HTML report for outputs under runtime/<run_id>/ (e.g. app.run_local smoke tests)."""
+    job_dir = resolve_local_run_dir(BASE_DIR, run_id)
+    return build_job_report_html(
+        run_id,
+        job_dir,
+        media_prefix=f"/results/local/{run_id}",
+        report_kind="local",
+    )
+
+
+@app.get("/results/local/{run_id}/file/{filename}")
+def browse_local_file(run_id: str, filename: str) -> FileResponse:
+    job_dir = resolve_local_run_dir(BASE_DIR, run_id)
+    return job_file_response(job_dir, filename)
 
 
 @app.get("/results/{job_id}", response_class=HTMLResponse)
