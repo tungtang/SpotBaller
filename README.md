@@ -115,20 +115,22 @@ Use SSH (`git@github.com:...`) if your SSH key is [added to GitHub](https://gith
 
 If you use GitHub CLI: `gh repo create YOUR_REPO_NAME --private --source=. --remote=origin --push`
 
-### Pushing to `tungtang/basketball-video-analytics`
+### GitHub remote: `tungtang/spotBaller`
 
-This clone is configured with `origin` → `https://github.com/tungtang/basketball-video-analytics.git`. The GitHub MCP token used in Cursor usually **cannot** create repositories (API returns 403); create the repo yourself, then push from a normal terminal (macOS **Terminal.app** or **iTerm**) where your GitHub login or SSH agent works:
+`origin` points at **`https://github.com/tungtang/spotBaller.git`** (same name as the local `SpotBaller` folder; GitHub shows the name as `spotBaller`).
 
-1. Open [github.com/new](https://github.com/new): Repository name **`basketball-video-analytics`**, **Private**, **do not** add README, `.gitignore`, or license (keep the repo empty).
-2. From this directory run:
+**If the repo still exists as `basketball-video-analytics`:** open [github.com/tungtang/basketball-video-analytics/settings](https://github.com/tungtang/basketball-video-analytics/settings) → **General** → **Repository name** → set to **`spotBaller`** → **Rename**. GitHub keeps redirects from the old URL for a while.
+
+**New repo:** create [github.com/new](https://github.com/new) with name **`spotBaller`** (empty, no README).
+
+Then push from a terminal where your GitHub credentials work:
 
 ```bash
 cd /Users/tungtang/Documents/SpotBaller
 git push -u origin main
 ```
 
-If Git asks for credentials, use your GitHub username and a **personal access token** with `repo` scope (HTTPS), or switch the remote to SSH:  
-`git remote set-url origin git@github.com:tungtang/basketball-video-analytics.git` then `git push -u origin main`.
+SSH alternative: `git remote set-url origin git@github.com:tungtang/spotBaller.git` then `git push -u origin main`.
 
 ## GitHub MCP (Cursor)
 
