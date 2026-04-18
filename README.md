@@ -2,6 +2,9 @@
 
 Local-first and web-deployable basketball video analytics app built around YOLOv8.
 
+**Repository root:** open the **`SpotBaller`** folder in your editor (not `Documents`).
+
+
 ## What is included
 
 - MVP specification and quality targets
@@ -100,7 +103,7 @@ This repo ignores large artifacts: `runtime/`, `*.pt` weights, and `basketball_a
 Set your name and email for commits (once per machine or use `--local` in this repo only), then add GitHub:
 
 ```bash
-cd /path/to/Documents
+cd /path/to/SpotBaller
 git config --local user.name "Your Name"
 git config --local user.email "you@example.com"
 
@@ -120,7 +123,7 @@ This clone is configured with `origin` → `https://github.com/tungtang/basketba
 2. From this directory run:
 
 ```bash
-cd /Users/tungtang/Documents
+cd /Users/tungtang/Documents/SpotBaller
 git push -u origin main
 ```
 
