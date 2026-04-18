@@ -112,6 +112,21 @@ Use SSH (`git@github.com:...`) if your SSH key is [added to GitHub](https://gith
 
 If you use GitHub CLI: `gh repo create YOUR_REPO_NAME --private --source=. --remote=origin --push`
 
+### Pushing to `tungtang/basketball-video-analytics`
+
+This clone is configured with `origin` → `https://github.com/tungtang/basketball-video-analytics.git`. The GitHub MCP token used in Cursor usually **cannot** create repositories (API returns 403); create the repo yourself, then push from a normal terminal (macOS **Terminal.app** or **iTerm**) where your GitHub login or SSH agent works:
+
+1. Open [github.com/new](https://github.com/new): Repository name **`basketball-video-analytics`**, **Private**, **do not** add README, `.gitignore`, or license (keep the repo empty).
+2. From this directory run:
+
+```bash
+cd /Users/tungtang/Documents
+git push -u origin main
+```
+
+If Git asks for credentials, use your GitHub username and a **personal access token** with `repo` scope (HTTPS), or switch the remote to SSH:  
+`git remote set-url origin git@github.com:tungtang/basketball-video-analytics.git` then `git push -u origin main`.
+
 ## GitHub MCP (Cursor)
 
 This repo includes [`.cursor/mcp.json.example`](.cursor/mcp.json.example) with the official **remote** GitHub MCP server ([Streamable HTTP](https://github.com/github/github-mcp-server/blob/main/docs/installation-guides/install-cursor.md)). Copy it to `.cursor/mcp.json` and add your token (that file is gitignored).
