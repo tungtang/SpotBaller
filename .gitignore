@@ -46,5 +46,5 @@ basketball_analysis/input_videos/*
 # Logs
 *.log
 
-# Optional: uncomment to ignore Cursor project metadata
-# .cursor/
+# Cursor MCP — keep tokens local (copy from .cursor/mcp.json.example)
+.cursor/mcp.json

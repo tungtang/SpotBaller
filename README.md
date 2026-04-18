@@ -114,10 +114,10 @@ If you use GitHub CLI: `gh repo create YOUR_REPO_NAME --private --source=. --rem
 
 ## GitHub MCP (Cursor)
 
-This repo includes [`.cursor/mcp.json`](.cursor/mcp.json) with the official **remote** GitHub MCP server ([Streamable HTTP](https://github.com/github/github-mcp-server/blob/main/docs/installation-guides/install-cursor.md)). It lets the agent use GitHub tools (repos, issues, PRs) when you provide a token.
+This repo includes [`.cursor/mcp.json.example`](.cursor/mcp.json.example) with the official **remote** GitHub MCP server ([Streamable HTTP](https://github.com/github/github-mcp-server/blob/main/docs/installation-guides/install-cursor.md)). Copy it to `.cursor/mcp.json` and add your token (that file is gitignored).
 
 1. Create a [Personal Access Token](https://github.com/settings/personal-access-tokens/new) (classic or fine-grained) with the scopes you need (e.g. `repo`, `read:org`).
-2. Edit `.cursor/mcp.json` and replace `YOUR_GITHUB_PAT` with that token (or merge this block into `~/.cursor/mcp.json` for all projects).
+2. `cp .cursor/mcp.json.example .cursor/mcp.json` and set `Authorization` to `Bearer <your-token>` (or merge this block into `~/.cursor/mcp.json` for all projects).
 3. Fully **quit and restart Cursor** (MCP loads at startup).
 4. In **Settings → Tools & MCP**, confirm the GitHub server shows a green status.
 
