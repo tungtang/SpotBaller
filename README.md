@@ -111,3 +111,14 @@ git push -u origin main
 Use SSH (`git@github.com:...`) if your SSH key is [added to GitHub](https://github.com/settings/keys), or HTTPS with a [personal access token](https://github.com/settings/tokens). Create an empty repo on GitHub (**New repository**, no README), then run the commands above.
 
 If you use GitHub CLI: `gh repo create YOUR_REPO_NAME --private --source=. --remote=origin --push`
+
+## GitHub MCP (Cursor)
+
+This repo includes [`.cursor/mcp.json`](.cursor/mcp.json) with the official **remote** GitHub MCP server ([Streamable HTTP](https://github.com/github/github-mcp-server/blob/main/docs/installation-guides/install-cursor.md)). It lets the agent use GitHub tools (repos, issues, PRs) when you provide a token.
+
+1. Create a [Personal Access Token](https://github.com/settings/personal-access-tokens/new) (classic or fine-grained) with the scopes you need (e.g. `repo`, `read:org`).
+2. Edit `.cursor/mcp.json` and replace `YOUR_GITHUB_PAT` with that token (or merge this block into `~/.cursor/mcp.json` for all projects).
+3. Fully **quit and restart Cursor** (MCP loads at startup).
+4. In **Settings → Tools & MCP**, confirm the GitHub server shows a green status.
+
+Requires Cursor **v0.48+** for Streamable HTTP. Alternative: run the local server with Docker using image `ghcr.io/github/github-mcp-server` (see the [official install guide](https://github.com/github/github-mcp-server/blob/main/docs/installation-guides/install-cursor.md)).
