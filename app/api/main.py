@@ -25,7 +25,11 @@ from app.api.db import (
 from app.ml.model_shortlist import get_model_shortlist
 from app.api.worker import process_job
 from app.pipeline.pretrained_stack import pipeline_config_from_flags
-from app.pipeline.video_analyzer import AnalysisStoppedError, run_video_analysis
+from app.pipeline.video_analyzer import (
+    AnalysisStoppedError,
+    planned_total_frames_for_video,
+    run_video_analysis,
+)
 from app.api.web_report import (
     build_combined_index_html,
     build_job_report_html,
@@ -247,15 +251,17 @@ def _run_vm_job_async(
     use_pretrained_stack: str,
     use_videomae: str,
     max_frames: int | None,
+    planned_total_frames: int | None,
 ) -> None:
     """Background worker: gcloud scp + remote run_local + scp performance back."""
     mode = "vm"
     payload: dict = {}
+    cfg_vm = None
     try:
         from app.gcp.vm_runner import run_pipeline_on_vm, vm_config_from_env
 
-        cfg = vm_config_from_env()
-        if cfg is None:
+        cfg_vm = vm_config_from_env()
+        if cfg_vm is None:
             raise RuntimeError(
                 "VM mode requires SPOTBALLER_GCLOUD_VM, SPOTBALLER_GCLOUD_ZONE, SPOTBALLER_GCLOUD_PROJECT"
             )
@@ -263,7 +269,7 @@ def _run_vm_job_async(
         use_pt = str(use_pretrained_stack).lower() in ("1", "true", "yes", "on")
         use_vm = str(use_videomae).lower() in ("1", "true", "yes", "on")
         result = run_pipeline_on_vm(
-            cfg,
+            cfg_vm,
             job_id,
             Path(video_path),
             out_dir,
@@ -271,6 +277,7 @@ def _run_vm_job_async(
             use_pretrained_stack=use_pt,
             use_videomae=use_vm,
             max_frames=max_frames,
+            planned_total_frames=planned_total_frames,
         )
         enriched: dict = {"vm_remote": True, **result}
         prog_path = out_dir / "progress.json"
@@ -294,6 +301,9 @@ def _run_vm_job_async(
             "use_pretrained_stack": use_pretrained_stack,
             "use_videomae": use_videomae,
             "status": "done",
+            "gcp_vm": cfg_vm.vm,
+            "gcp_zone": cfg_vm.zone,
+            "gcp_project": cfg_vm.project,
             "result": enriched,
         }
         try_upsert_job(job_id, mode, "done", video_path, str(out_dir / "job.json"))
@@ -307,6 +317,10 @@ def _run_vm_job_async(
             "status": "failed",
             "error": str(exc),
         }
+        if cfg_vm is not None:
+            payload["gcp_vm"] = cfg_vm.vm
+            payload["gcp_zone"] = cfg_vm.zone
+            payload["gcp_project"] = cfg_vm.project
         try_upsert_job(job_id, mode, "failed", video_path, str(out_dir / "job.json"))
     finally:
         _unregister_local_worker(job_id)
@@ -322,6 +336,7 @@ def _spawn_vm_worker(
     use_pretrained_stack: str,
     use_videomae: str,
     max_frames: int | None,
+    planned_total_frames: int | None,
 ) -> threading.Thread:
     if job_id in _local_job_workers:
         raise HTTPException(status_code=409, detail="Job already has an active worker.")
@@ -335,6 +350,7 @@ def _spawn_vm_worker(
             "use_pretrained_stack": use_pretrained_stack,
             "use_videomae": use_videomae,
             "max_frames": max_frames,
+            "planned_total_frames": planned_total_frames,
         },
         daemon=True,
     )
@@ -489,6 +505,20 @@ def health_summary() -> dict:
     }
 
 
+@app.get("/config/gcp")
+def gcp_config_public() -> dict:
+    """VM name / zone / project from the API process env (for dashboard labels when using GCP VM mode)."""
+    vm = os.environ.get("SPOTBALLER_GCLOUD_VM", "").strip()
+    zone = os.environ.get("SPOTBALLER_GCLOUD_ZONE", "").strip()
+    project = os.environ.get("SPOTBALLER_GCLOUD_PROJECT", "").strip()
+    return {
+        "vm": vm or None,
+        "zone": zone or None,
+        "project": project or None,
+        "vm_configured": bool(vm and zone and project),
+    }
+
+
 @app.post("/videos")
 async def upload_video(file: UploadFile = File(...)) -> dict:
     video_id = str(uuid.uuid4())
@@ -522,14 +552,16 @@ def create_job(
     pipeline_cfg = pipeline_config_from_flags(use_pretrained_stack, use_videomae)
     mf = _parse_optional_max_frames(max_frames)
     if mode == "vm":
-        from app.gcp.vm_runner import vm_config_from_env
+        from app.gcp.vm_runner import vm_config_from_env, vm_progress_stub_payload
 
-        if vm_config_from_env() is None:
+        cfg_vm = vm_config_from_env()
+        if cfg_vm is None:
             raise HTTPException(
                 status_code=501,
                 detail="VM mode requires SPOTBALLER_GCLOUD_VM, SPOTBALLER_GCLOUD_ZONE, SPOTBALLER_GCLOUD_PROJECT "
                 "and gcloud on PATH (see infra/gcp/README.md).",
             )
+        planned_vm = planned_total_frames_for_video(Path(video_path), mf)
         try_upsert_job(job_id, mode, "processing", video_path, str(out_dir / "job.json"))
         payload = {
             "job_id": job_id,
@@ -538,9 +570,27 @@ def create_job(
             "use_pretrained_stack": use_pretrained_stack,
             "use_videomae": use_videomae,
             "status": "processing",
-            "max_frames": mf,
+            "gcp_vm": cfg_vm.vm,
+            "gcp_zone": cfg_vm.zone,
+            "gcp_project": cfg_vm.project,
+            "planned_total_frames": planned_vm,
         }
+        if mf is not None:
+            payload["max_frames"] = mf
         _write_job_json(out_dir, payload)
+        try:
+            (out_dir / "progress.json").write_text(
+                json.dumps(
+                    vm_progress_stub_payload(
+                        cfg_vm,
+                        planned_vm,
+                        detail="Queued — uploading to VM",
+                    ),
+                    indent=2,
+                )
+            )
+        except OSError:
+            pass
         _spawn_vm_worker(
             job_id,
             out_dir,
@@ -549,6 +599,7 @@ def create_job(
             use_pretrained_stack,
             use_videomae,
             mf,
+            planned_vm,
         )
     elif mode == "cloud":
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")

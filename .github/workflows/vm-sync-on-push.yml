@@ -4,8 +4,8 @@
 # Required GitHub repo secrets (Settings → Secrets and variables → Actions):
 #   GCP_SA_JSON   — JSON key for a service account that can use gcloud compute ssh
 #   GCP_PROJECT   — e.g. datacloudpoc
-#   GCP_ZONE      — e.g. asia-southeast1-b
-#   GCP_VM_NAME   — e.g. spotballer-vm1
+#   GCP_ZONE      — e.g. asia-southeast1-a
+#   GCP_VM_NAME   — e.g. spotballer-vm-2
 #
 # IAM (typical):
 #   - Service account: roles/compute.instanceAdmin.v1 or compute.osAdminLogin + compute.osLogin

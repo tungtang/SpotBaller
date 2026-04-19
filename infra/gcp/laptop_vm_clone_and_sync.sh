@@ -12,8 +12,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VM="${VM:-spotballer-vm1}"
-ZONE="${ZONE:-asia-southeast1-b}"
+VM="${VM:-spotballer-vm-2}"
+ZONE="${ZONE:-asia-southeast1-a}"
 PROJECT="${GCP_PROJECT:-${PROJECT:-datacloudpoc}}"
 REPO_URL="${SPOTBALLER_REPO:-https://github.com/tungtang/spotBaller.git}"
 BRANCH="${SPOTBALLER_GIT_BRANCH:-main}"

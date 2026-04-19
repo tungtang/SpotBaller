@@ -1,9 +1,48 @@
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api import main as api_main
+
+
+def test_config_gcp_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SPOTBALLER_GCLOUD_VM", "spotballer-vm-2")
+    monkeypatch.setenv("SPOTBALLER_GCLOUD_ZONE", "asia-southeast1-a")
+    monkeypatch.setenv("SPOTBALLER_GCLOUD_PROJECT", "my-proj")
+    client = TestClient(api_main.app)
+    res = client.get("/config/gcp")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["vm"] == "spotballer-vm-2"
+    assert data["zone"] == "asia-southeast1-a"
+    assert data["project"] == "my-proj"
+    assert data["vm_configured"] is True
+    monkeypatch.delenv("SPOTBALLER_GCLOUD_VM", raising=False)
+    res2 = client.get("/config/gcp")
+    assert res2.json()["vm_configured"] is False
+
+
+def test_planned_total_frames_matches_video(tmp_path: Path) -> None:
+    cv2 = pytest.importorskip("cv2")
+    np = pytest.importorskip("numpy")
+    from app.pipeline.video_analyzer import planned_total_frames_for_video
+
+    mp4 = tmp_path / "clip.mp4"
+    w, h = 320, 240
+    vw = cv2.VideoWriter(str(mp4), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (w, h))
+    n = 12
+    for _ in range(n):
+        vw.write(np.zeros((h, w, 3), dtype=np.uint8))
+    vw.release()
+    cap = cv2.VideoCapture(str(mp4))
+    raw = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    cap.release()
+    assert planned_total_frames_for_video(mp4, 5) == (5 if raw <= 0 else min(raw, 5))
+    full = planned_total_frames_for_video(mp4, None)
+    if raw > 0:
+        assert full == raw
 
 
 def test_health_summary_shape() -> None:

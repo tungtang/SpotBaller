@@ -10,8 +10,8 @@
 
 set -euo pipefail
 
-VM="${VM:-spotballer-vm1}"
-ZONE="${ZONE:-asia-southeast1-b}"
+VM="${VM:-spotballer-vm-2}"
+ZONE="${ZONE:-asia-southeast1-a}"
 PROJECT="${GCP_PROJECT:-${PROJECT:-datacloudpoc}}"
 
 gcloud compute ssh "$VM" \

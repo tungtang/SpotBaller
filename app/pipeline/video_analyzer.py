@@ -28,6 +28,20 @@ DEFAULT_EBARD_WEIGHTS = Path("models/e-bard/BODD_yolov8n_0001.pt")
 PROGRESS_WRITE_INTERVAL = 14
 
 
+def planned_total_frames_for_video(video_path: Path, max_frames: int | None) -> int | None:
+    """Same ``total_target`` semantics as :func:`run_video_analysis` for progress UI (local or pre-VM stub)."""
+    cap = cv2.VideoCapture(str(video_path))
+    try:
+        raw_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    finally:
+        cap.release()
+    if max_frames is not None:
+        return max_frames if raw_total <= 0 else min(raw_total, max_frames)
+    if raw_total > 0:
+        return raw_total
+    return None
+
+
 def _write_progress_json(
     output_dir: Path,
     frames_processed: int,

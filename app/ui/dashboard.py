@@ -180,6 +180,13 @@ def render_job_status_ui(
     }
     title = _lifecycle_title(job_payload, status)
     st.markdown(f"**{title}** · raw `{status}` · **Job ID:** `{job_id}`")
+    mode_j = str(job_payload.get("mode", "")).lower()
+    res = job_payload.get("result") if isinstance(job_payload.get("result"), dict) else {}
+    vm_name = job_payload.get("gcp_vm") or res.get("remote_vm")
+    vm_zone = job_payload.get("gcp_zone") or res.get("remote_zone")
+    if mode_j == "vm" and vm_name:
+        zone_bit = f" · `{vm_zone}`" if vm_zone else ""
+        st.caption(f"GCP VM: **{vm_name}**{zone_bit}")
     st.progress(pct_bar if pct_bar is not None else fallback_map.get(status, 0.05))
 
     prog_cols = st.columns(2)
@@ -242,8 +249,16 @@ with st.sidebar:
             "cloud": "Redis / RQ worker",
             "gcp": "GCS + Pub/Sub GPU pool",
         }.get(m, m),
-        help="Local = same host as the API. VM = requires gcloud + SPOTBALLER_GCLOUD_* env on the API host.",
+        help="Local = same host as the API. VM = run on the instance named in SPOTBALLER_GCLOUD_VM (e.g. spotballer-vm-2); requires gcloud + SPOTBALLER_GCLOUD_* on the API host.",
     )
+    gcp_cfg = fetch_optional(f"{api_base}/config/gcp") if api_ok(api_base) else None
+    if mode == "vm" and isinstance(gcp_cfg, dict) and gcp_cfg.get("vm"):
+        st.caption(
+            f"Target VM from API env: **{gcp_cfg['vm']}**"
+            + (f" (`{gcp_cfg['zone']}`)" if gcp_cfg.get("zone") else "")
+        )
+    elif mode == "vm":
+        st.caption("Set SPOTBALLER_GCLOUD_VM / ZONE / PROJECT on the API host, or `/config/gcp` will be empty.")
     max_frames_ui = st.number_input(
         "Max frames (0 = full video)",
         min_value=0,

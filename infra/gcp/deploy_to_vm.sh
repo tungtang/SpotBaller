@@ -12,13 +12,13 @@
 #   bash infra/gcp/deploy_to_vm.sh
 #
 # Override defaults:
-#   VM=spotballer-vm1 ZONE=asia-southeast1-b PROJECT=datacloudpoc bash infra/gcp/deploy_to_vm.sh
+#   VM=spotballer-vm-2 ZONE=asia-southeast1-a PROJECT=datacloudpoc bash infra/gcp/deploy_to_vm.sh
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VM="${VM:-spotballer-vm1}"
-ZONE="${ZONE:-asia-southeast1-b}"
+VM="${VM:-spotballer-vm-2}"
+ZONE="${ZONE:-asia-southeast1-a}"
 PROJECT="${PROJECT:-datacloudpoc}"
 
 if ! command -v gcloud >/dev/null 2>&1; then

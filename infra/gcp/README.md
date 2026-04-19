@@ -33,12 +33,12 @@ Use a **Compute Engine VM + T4/L4** without GKE: run the app **on the VM**; your
 
 6. **Cursor:** Remote-SSH to the same VM, open **`~/SpotBaller`** — terminal and Python run on the **GPU VM**.
 
-### VM hardware (example: `spotballer-vm1`)
+### VM hardware (example: `spotballer-vm-2`)
 
 Inspect shape and GPU:
 
 ```bash
-gcloud compute instances describe spotballer-vm1 --zone=asia-southeast1-b --format='yaml(machineType,guestAccelerators)'
+gcloud compute instances describe spotballer-vm-2 --zone=asia-southeast1-a --format='yaml(machineType,guestAccelerators)'
 nvidia-smi
 python3 -c "import torch; print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
 ```
@@ -52,6 +52,7 @@ Example profile: **custom-8-16384** (8 vCPU, 16 GiB RAM) + **NVIDIA T4** (16 GiB
 | `SPOTBALLER_VM_PREFETCH_FRAMES` | `4` | Decode ahead while inference runs |
 | `SPOTBALLER_VM_ASYNC_WRITER` | `1` | Encode annotated video on a background thread |
 | `SPOTBALLER_VM_IDENTITY_STRIDE` | `1` | Set to `2` or `3` after `git pull` on the VM for faster runs (fewer SigLIP/TrOCR steps) |
+| `SPOTBALLER_VM_PROGRESS_POLL_SEC` | `5` | API host: interval to copy `progress.json` from the VM while the job runs (live dashboard/API) |
 | `SPOTBALLER_CUDA_TUNING` | `1` on remote | cuDNN benchmark + faster matmul on CUDA |
 
 On the VM directly, you can also run:
@@ -97,10 +98,10 @@ From the **SpotBaller repo root** on your Mac (after `gcloud auth login` and `gc
 bash infra/gcp/deploy_to_vm.sh
 ```
 
-Defaults: `VM=spotballer-vm1`, `ZONE=asia-southeast1-b`, `PROJECT=datacloudpoc`. Override if needed:
+Defaults: `VM=spotballer-vm-2`, `ZONE=asia-southeast1-a`, `PROJECT=datacloudpoc`. Override if needed:
 
 ```bash
-VM=spotballer-vm1 ZONE=asia-southeast1-b PROJECT=datacloudpoc bash infra/gcp/deploy_to_vm.sh
+VM=spotballer-vm-2 ZONE=asia-southeast1-a PROJECT=datacloudpoc bash infra/gcp/deploy_to_vm.sh
 ```
 
 ### Automatic VM ↔ repo sync
