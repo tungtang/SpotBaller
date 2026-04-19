@@ -38,13 +38,18 @@ else
 fi
 
 cd "$SPOTBALLER_HOME"
-chmod +x infra/gcp/vm_pull_latest.sh infra/gcp/install_vm_auto_sync.sh 2>/dev/null || true
+SETUP="$SPOTBALLER_HOME/infra/gcp/setup_gcp_dev_vm.sh"
+if [[ ! -f "$SETUP" ]]; then
+  echo "ERROR: Missing $SETUP — push infra/gcp from your laptop (git add infra/gcp && git push) then re-run."
+  exit 1
+fi
+chmod +x "$SPOTBALLER_HOME/infra/gcp/vm_pull_latest.sh" "$SPOTBALLER_HOME/infra/gcp/install_vm_auto_sync.sh" 2>/dev/null || true
 
 echo "==> Python / venv / CUDA (idempotent)"
-bash infra/gcp/setup_gcp_dev_vm.sh
+bash "$SETUP"
 
 echo "==> Cron: periodic git pull + pip when origin changes"
-bash infra/gcp/install_vm_auto_sync.sh
+bash "$SPOTBALLER_HOME/infra/gcp/install_vm_auto_sync.sh"
 
 echo ""
 echo "==> Done. VM will check GitHub every ${SPOTBALLER_VM_CRON_MINS:-5} minutes."
