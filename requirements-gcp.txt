@@ -1,0 +1,4 @@
+# Optional: Google Cloud (Pub/Sub + GCS) for GPU worker pool.
+# Install: pip install -r requirements.txt -r requirements-gcp.txt
+google-cloud-storage>=2.14.0
+google-cloud-pubsub>=2.18.0

@@ -16,11 +16,15 @@ ALLOWED_JOB_FILES = frozenset(
     {
         "annotated.mp4",
         "stats.json",
+        "stats_by_track.json",
         "events.json",
         "tracks.json",
         "player_identity_map.json",
         "team_box_score.json",
         "stats.csv",
+        "team_box_score_players.csv",
+        "action_hints_long.csv",
+        "pipeline_performance.csv",
         "pipeline.json",
         "action_hints.json",
         "videomae_aux.json",
@@ -257,6 +261,88 @@ def _fmt_time(ts: float) -> str:
         return ""
 
 
+def _html_table(rows: list[dict], preferred_cols: list[str], limit: int = 200) -> str:
+    if not rows:
+        return "<p class='muted'>No rows.</p>"
+    cols = [c for c in preferred_cols if c in rows[0]]
+    if not cols:
+        cols = list(rows[0].keys())[:12]
+    thead = "".join(f"<th>{escape(str(k))}</th>" for k in cols)
+    body_rows = []
+    for r in rows[:limit]:
+        cells = "".join(f"<td>{escape(str(r.get(k, '')))}</td>" for k in cols)
+        body_rows.append(f"<tr>{cells}</tr>")
+    out = f'<table class="data-table"><thead><tr>{thead}</tr></thead><tbody>{"".join(body_rows)}</tbody></table>'
+    if len(rows) > limit:
+        out += f"<p class='muted'>Showing {limit} of {len(rows)} rows.</p>"
+    return out
+
+
+def _render_team_box_score(team: object) -> str:
+    if not isinstance(team, list) or not team:
+        return "<p class='muted'>No team box score available.</p>"
+    blocks: list[str] = []
+    for t in team:
+        if not isinstance(t, dict):
+            continue
+        team_name = escape(str(t.get("team_name", "Unknown Team")))
+        totals = t.get("team_totals", {}) if isinstance(t.get("team_totals"), dict) else {}
+        totals_line = " · ".join(
+            [
+                f"PTS {int(float(totals.get('pts', 0) or 0))}",
+                f"REB {int(float(totals.get('reb', 0) or 0))}",
+                f"AST {int(float(totals.get('ast', 0) or 0))}",
+                f"TOV {int(float(totals.get('tov', 0) or 0))}",
+            ]
+        )
+        players = t.get("players") if isinstance(t.get("players"), list) else []
+        table = _html_table(
+            players, ["player_number", "player_label", "minutes_on_court", "pts", "reb", "ast", "stl", "blk", "tov", "fgm", "fga", "fg_pct"]
+        )
+        blocks.append(f"<h3>{team_name}</h3><p class='muted'>{totals_line}</p>{table}")
+    return "".join(blocks) if blocks else "<p class='muted'>No team rows.</p>"
+
+
+def _render_pipeline_summary(pipeline: object) -> str:
+    if not isinstance(pipeline, dict):
+        return "<p class='muted'>No pipeline metadata.</p>"
+    ps = pipeline.get("pretrained_stack") if isinstance(pipeline.get("pretrained_stack"), dict) else {}
+    perf = pipeline.get("performance") if isinstance(pipeline.get("performance"), dict) else {}
+    stage = perf.get("stage_s") if isinstance(perf.get("stage_s"), dict) else {}
+    rows = [
+        {"metric": "weights", "value": pipeline.get("detection_weights", "—")},
+        {"metric": "tracker_backend", "value": pipeline.get("tracker_backend", "—")},
+        {
+            "metric": "pretrained_loaded",
+            "value": f"{sum(bool(ps.get(k)) for k in ('siglip_loaded', 'trocr_loaded', 'videomae_loaded'))}/3",
+        },
+        {"metric": "fps_effective", "value": perf.get("fps_effective", "—")},
+    ]
+    summary = _html_table(rows, ["metric", "value"], limit=20)
+    if stage:
+        stage_rows = [{"stage": k, "seconds": v} for k, v in sorted(stage.items(), key=lambda x: float(x[1]), reverse=True)]
+        summary += "<h3>Stage timing</h3>" + _html_table(stage_rows, ["stage", "seconds"], limit=30)
+    return summary
+
+
+def _render_action_hints(hints: object) -> str:
+    if not isinstance(hints, list) or not hints:
+        return "<p class='muted'>No action hints emitted.</p>"
+    rows: list[dict] = []
+    for h in hints:
+        if not isinstance(h, dict):
+            continue
+        fi = h.get("frame_index")
+        scores = h.get("siglip_action_scores")
+        if not isinstance(scores, dict):
+            continue
+        for label, prob in scores.items():
+            rows.append({"frame": fi, "action": label, "probability": prob})
+    if not rows:
+        return "<p class='muted'>No action hint scores found.</p>"
+    return _html_table(rows, ["frame", "action", "probability"], limit=300)
+
+
 def build_landing_html() -> HTMLResponse:
     return HTMLResponse(
         f"""<!DOCTYPE html>
@@ -451,9 +537,34 @@ def build_job_report_html(
 
     table_html = ""
     if isinstance(stats, list) and stats:
-        keys = [k for k in stats[0].keys() if k in ("player_id", "minutes_on_court", "pts", "fga", "fgm", "fg_pct", "touches")]
+        first_row = stats[0]
+        if "jersey_key" in first_row or "identity_kind" in first_row:
+            keys = [
+                k
+                for k in first_row.keys()
+                if k
+                in (
+                    "player_label",
+                    "jersey_key",
+                    "team_name",
+                    "merged_track_ids",
+                    "merged_track_count",
+                    "minutes_on_court",
+                    "pts",
+                    "fga",
+                    "fgm",
+                    "fg_pct",
+                    "touches",
+                )
+            ]
+        else:
+            keys = [
+                k
+                for k in first_row.keys()
+                if k in ("player_id", "minutes_on_court", "pts", "fga", "fgm", "fg_pct", "touches")
+            ]
         if not keys:
-            keys = list(stats[0].keys())[:12]
+            keys = list(first_row.keys())[:12]
         thead = "".join(f"<th>{escape(str(k))}</th>" for k in keys)
         trs = []
         for row in stats[:80]:
@@ -521,23 +632,27 @@ def build_job_report_html(
     </section>
 
     <section id="stats">
-      <h2>Player stats</h2>
+      <h2>Player stats (by jersey)</h2>
+      <p class="muted">Rows are merged by detected jersey number and team. Unresolved tracks stay separate.</p>
       {table_html if table_html else "<p class='muted'>No stats.json yet.</p>"}
     </section>
 
     <section id="team">
       <h2>Team box score</h2>
+      {_render_team_box_score(team)}
       {block("team_box_score.json", team)}
     </section>
 
     <section id="pipeline">
       <h2>Pipeline</h2>
+      {_render_pipeline_summary(pipeline)}
       {block("pipeline.json", pipeline)}
     </section>
 
     <section id="hints">
       <h2>Action hints</h2>
       {hints_note}
+      {_render_action_hints(hints)}
       {block("action_hints.json", hints)}
     </section>
 
@@ -546,11 +661,15 @@ def build_job_report_html(
       <p class="muted">Open in a new tab or save:</p>
       <div class="file-links">
         <a href="{media_prefix}/file/stats.json" target="_blank" rel="noopener">stats.json</a>
+        <a href="{media_prefix}/file/stats_by_track.json" target="_blank" rel="noopener">stats_by_track.json</a>
         <a href="{media_prefix}/file/events.json" target="_blank" rel="noopener">events.json</a>
         <a href="{media_prefix}/file/tracks.json" target="_blank" rel="noopener">tracks.json</a>
         <a href="{media_prefix}/file/player_identity_map.json" target="_blank" rel="noopener">player_identity_map</a>
         <a href="{media_prefix}/file/pipeline.json" target="_blank" rel="noopener">pipeline.json</a>
         <a href="{media_prefix}/file/stats.csv" target="_blank" rel="noopener">stats.csv</a>
+        <a href="{media_prefix}/file/team_box_score_players.csv" target="_blank" rel="noopener">team_box_score_players.csv</a>
+        <a href="{media_prefix}/file/action_hints_long.csv" target="_blank" rel="noopener">action_hints_long.csv</a>
+        <a href="{media_prefix}/file/pipeline_performance.csv" target="_blank" rel="noopener">pipeline_performance.csv</a>
         <a href="{media_prefix}/file/job.json" target="_blank" rel="noopener">job.json</a>
       </div>
     </section>

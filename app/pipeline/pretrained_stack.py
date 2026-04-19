@@ -9,6 +9,7 @@ Requires: transformers, torch (already in requirements). Falls back cleanly if u
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -48,6 +49,95 @@ ACTION_PROMPTS = [
     "a basketball player dribbling the basketball",
     "a basketball player defending another player",
 ]
+
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _ensure_hf_no_proxy_for_hub() -> None:
+    """
+    If HTTP(S) proxy env vars are set, route huggingface.co around the proxy.
+
+    Many environments return ``403 Forbidden`` on CONNECT to the Hub through
+    a corporate proxy; direct TLS to ``huggingface.co`` works. Opt out with
+    ``SPOTBALLER_HF_RESPECT_PROXY=1`` if you must send Hub traffic via proxy.
+    """
+    if _env_truthy("SPOTBALLER_HF_RESPECT_PROXY"):
+        return
+    proxy_set = any(
+        os.environ.get(k)
+        for k in (
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+        )
+    )
+    if not proxy_set:
+        return
+    extra_hosts = "huggingface.co,.hf.co,hf.co"
+    for key in ("NO_PROXY", "no_proxy"):
+        cur = (os.environ.get(key) or "").strip()
+        if "huggingface.co" in cur:
+            continue
+        os.environ[key] = f"{cur},{extra_hosts}" if cur else extra_hosts
+
+
+def _apply_hf_hub_env_defaults() -> None:
+    """Honor SPOTBALLER_HF_OFFLINE so huggingface_hub does not contact the API."""
+    if _env_truthy("SPOTBALLER_HF_OFFLINE"):
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
+
+def _hf_config_cached_locally(repo_id: str) -> bool:
+    """True if ``config.json`` for ``repo_id`` is already in the HF cache (no Hub HEAD/GET)."""
+    if _env_truthy("SPOTBALLER_HF_DISABLE_AUTO_OFFLINE"):
+        return False
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except Exception:
+        return False
+    try:
+        p = try_to_load_from_cache(repo_id, "config.json")
+        return p is not None and os.path.isfile(p)
+    except Exception:
+        return False
+
+
+def hf_from_pretrained_kwargs(repo_id: str | None = None) -> dict[str, Any]:
+    """
+    Extra arguments for ``*.from_pretrained(...)``.
+
+    Even when weights are already in ``~/.cache/huggingface/hub``, the default
+    ``from_pretrained(repo_id)`` path can still **call the Hub** (version checks,
+    metadata), which triggers rate-limit warnings without ``HF_TOKEN``. Set
+    ``HF_HUB_OFFLINE=1`` or ``SPOTBALLER_HF_LOCAL_ONLY=1`` after the cache is
+    populated on the machine, or set ``HF_TOKEN`` / ``huggingface-cli login``.
+
+    Pass ``repo_id`` so when ``config.json`` is already cached locally, we set
+    ``local_files_only=True`` and avoid Hub requests (helps broken proxies).
+    """
+    kw: dict[str, Any] = {}
+    if (
+        _env_truthy("HF_HUB_OFFLINE")
+        or _env_truthy("TRANSFORMERS_OFFLINE")
+        or _env_truthy("SPOTBALLER_HF_LOCAL_ONLY")
+    ):
+        kw["local_files_only"] = True
+    elif repo_id and _hf_config_cached_locally(repo_id):
+        kw["local_files_only"] = True
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if token:
+        kw["token"] = token
+    return kw
+
+
+_ensure_hf_no_proxy_for_hub()
+_apply_hf_hub_env_defaults()
 
 
 @dataclass
@@ -101,8 +191,9 @@ class PretrainedStack:
 
     def _init_siglip(self, device: str) -> None:
         try:
-            self._siglip_processor = SiglipProcessor.from_pretrained(SIGLIP_ID)
-            self._siglip_model = SiglipModel.from_pretrained(SIGLIP_ID).to(device)
+            _kw = hf_from_pretrained_kwargs(SIGLIP_ID)
+            self._siglip_processor = SiglipProcessor.from_pretrained(SIGLIP_ID, **_kw)
+            self._siglip_model = SiglipModel.from_pretrained(SIGLIP_ID, **_kw).to(device)
             self._siglip_model.eval()
             self._siglip_device = device
         except Exception as exc:  # pragma: no cover
@@ -112,8 +203,9 @@ class PretrainedStack:
 
     def _init_trocr(self, device: str) -> None:
         try:
-            self._trocr_processor = TrOCRProcessor.from_pretrained(TROCR_ID)
-            self._trocr_model = VisionEncoderDecoderModel.from_pretrained(TROCR_ID).to(device)
+            _kw = hf_from_pretrained_kwargs(TROCR_ID)
+            self._trocr_processor = TrOCRProcessor.from_pretrained(TROCR_ID, **_kw)
+            self._trocr_model = VisionEncoderDecoderModel.from_pretrained(TROCR_ID, **_kw).to(device)
             self._trocr_model.eval()
             self._trocr_device = device
         except Exception as exc:  # pragma: no cover
@@ -123,8 +215,9 @@ class PretrainedStack:
 
     def _init_videomae(self, device: str) -> None:
         try:
-            self._videomae_processor = VideoMAEImageProcessor.from_pretrained(VIDEOMAE_ID)
-            self._videomae_model = VideoMAEForVideoClassification.from_pretrained(VIDEOMAE_ID).to(device)
+            _kw = hf_from_pretrained_kwargs(VIDEOMAE_ID)
+            self._videomae_processor = VideoMAEImageProcessor.from_pretrained(VIDEOMAE_ID, **_kw)
+            self._videomae_model = VideoMAEForVideoClassification.from_pretrained(VIDEOMAE_ID, **_kw).to(device)
             self._videomae_model.eval()
             self._videomae_device = device
         except Exception as exc:  # pragma: no cover
@@ -170,7 +263,11 @@ class PretrainedStack:
         try:
             with torch.inference_mode():
                 pixel_values = self._trocr_processor(images=pil, return_tensors="pt").pixel_values.to(device)
-                generated_ids = self._trocr_model.generate(pixel_values)
+                # Avoid HF UserWarning about legacy max_length default; jersey text is short.
+                generated_ids = self._trocr_model.generate(
+                    pixel_values,
+                    max_new_tokens=8,
+                )
                 text = self._trocr_processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
         except Exception:
             return None, 0.0

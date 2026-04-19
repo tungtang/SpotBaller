@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from collections import Counter, defaultdict
 from typing import TYPE_CHECKING
 
@@ -20,37 +21,71 @@ if TYPE_CHECKING:
 
 class IdentityResolver:
     """
-    Builds stable player identity from per-frame crops:
-    - jersey number via TrOCR (optional) then Tesseract OCR
-    - team assignment via SigLIP embedding clustering (optional) else jersey color k-means
+    Jersey-number tracker: accumulates per-track jersey OCR votes and team cues from crops.
+
+    After the run, :func:`app.pipeline.reporting.aggregate_stats_by_jersey` merges all MOT
+    ``player_id`` rows that share the same detected jersey (and team) into one stats row
+    for reporting (see :class:`app.pipeline.reporting.JerseyNumberTracker`).
     """
 
-    def __init__(self, stack: PretrainedStack | None = None) -> None:
+    def __init__(self, stack: PretrainedStack | None = None, workers: int = 0) -> None:
         self.stack = stack
+        self.workers = max(0, int(workers))
         self.number_votes: defaultdict[int, list[str]] = defaultdict(list)
         self.color_samples: defaultdict[int, list[np.ndarray]] = defaultdict(list)
         self.embedding_samples: defaultdict[int, list[np.ndarray]] = defaultdict(list)
 
     def update(self, frame: np.ndarray, tracks: list[Track]) -> None:
-        for tr in tracks:
-            if tr.cls_name != "player":
-                continue
-            crop = self._safe_crop(frame, tr)
-            if crop.size == 0:
-                continue
-            number, conf = None, 0.0
-            if self.stack and self.stack.has_trocr:
-                number, conf = self.stack.recognize_jersey_digits(crop)
-            if number is None:
-                number, conf = self._extract_number(crop)
+        players = [tr for tr in tracks if tr.cls_name == "player"]
+        if not players:
+            return
+
+        has_pretrained = bool(self.stack and (self.stack.has_trocr or self.stack.has_siglip))
+        # Keep HF-backed paths single-threaded unless explicitly expanded later for safety.
+        can_parallelize = self.workers > 1 and not has_pretrained
+
+        if can_parallelize:
+            with ThreadPoolExecutor(max_workers=self.workers) as ex:
+                for tr, number, conf, emb, jersey_color in ex.map(
+                    self._analyze_player_track_for_frame(frame), players
+                ):
+                    if number is not None and conf >= 0.3:
+                        self.number_votes[tr.track_id].append(number)
+                    if emb is not None:
+                        self.embedding_samples[tr.track_id].append(emb)
+                    self.color_samples[tr.track_id].append(jersey_color)
+            return
+
+        for tr in players:
+            tr, number, conf, emb, jersey_color = self._analyze_player_track(frame, tr)
             if number is not None and conf >= 0.3:
                 self.number_votes[tr.track_id].append(number)
-            if self.stack and self.stack.has_siglip and self.stack.config.use_siglip_teams:
-                emb = self.stack.embed_jersey_region(crop)
-                if emb is not None:
-                    self.embedding_samples[tr.track_id].append(emb)
-            jersey_color = self._dominant_jersey_color(crop)
+            if emb is not None:
+                self.embedding_samples[tr.track_id].append(emb)
             self.color_samples[tr.track_id].append(jersey_color)
+
+    def _analyze_player_track(
+        self, frame: np.ndarray, tr: Track
+    ) -> tuple[Track, str | None, float, np.ndarray | None, np.ndarray]:
+        crop = self._safe_crop(frame, tr)
+        if crop.size == 0:
+            return tr, None, 0.0, None, np.array([127.0, 127.0, 127.0], dtype=np.float32)
+        number, conf = None, 0.0
+        if self.stack and self.stack.has_trocr:
+            number, conf = self.stack.recognize_jersey_digits(crop)
+        if number is None:
+            number, conf = self._extract_number(crop)
+        emb = None
+        if self.stack and self.stack.has_siglip and self.stack.config.use_siglip_teams:
+            emb = self.stack.embed_jersey_region(crop)
+        jersey_color = self._dominant_jersey_color(crop)
+        return tr, number, conf, emb, jersey_color
+
+    def _analyze_player_track_for_frame(self, frame: np.ndarray):
+        def _inner(tr: Track) -> tuple[Track, str | None, float, np.ndarray | None, np.ndarray]:
+            return self._analyze_player_track(frame, tr)
+
+        return _inner
 
     def finalize(self) -> dict[int, dict]:
         player_ids = sorted(set(self.number_votes.keys()) | set(self.color_samples.keys()))
@@ -133,9 +168,14 @@ class IdentityResolver:
     @staticmethod
     def _cluster_two_teams(centroids: dict[int, np.ndarray]) -> dict[int, int]:
         ids = list(centroids.keys())
-        data = np.vstack([centroids[i] for i in ids]).astype(np.float32)
         if len(ids) == 1:
             return {ids[0]: 0}
+        # OpenCV kmeans is unreliable or asserts when N == K == 2; split arbitrarily.
+        if len(ids) == 2:
+            return {ids[0]: 0, ids[1]: 1}
+        data = np.vstack([centroids[i] for i in ids]).astype(np.float32)
+        if data.ndim != 2 or data.shape[0] < 3:
+            return {pid: 0 for pid in ids}
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 20, 1.0)
         _compact, labels, _centers = cv2.kmeans(data, 2, None, criteria, 5, cv2.KMEANS_PP_CENTERS)
         return {pid: int(labels[idx][0]) for idx, pid in enumerate(ids)}

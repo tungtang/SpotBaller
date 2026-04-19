@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SpotBaller Parallel Architecture Plan</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1f2937;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #38bdf8;
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --border: #334155;
+      --code: #0b1220;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(180deg, #020617 0%, #0f172a 45%, #111827 100%);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .container {
+      width: min(1100px, 94vw);
+      margin: 36px auto 64px;
+    }
+    h1, h2, h3 { line-height: 1.25; margin: 0 0 12px; }
+    h1 { font-size: 2rem; color: #f8fafc; }
+    h2 {
+      font-size: 1.3rem;
+      margin-top: 26px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    h3 { font-size: 1rem; margin-top: 18px; color: #dbeafe; }
+    p { margin: 8px 0 12px; color: var(--text); }
+    .muted { color: var(--muted); }
+    .card {
+      background: rgba(17, 24, 39, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin: 14px 0;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+    }
+    .grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+    .pill {
+      display: inline-block;
+      border: 1px solid var(--border);
+      background: #0b1220;
+      color: #cbd5e1;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      margin-right: 6px;
+      margin-bottom: 6px;
+    }
+    .flow {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .node {
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .arrow {
+      text-align: center;
+      color: var(--accent);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    ul { margin: 8px 0 8px 18px; padding: 0; }
+    li { margin: 6px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 0.95rem;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      text-align: left;
+      padding: 9px 10px;
+      vertical-align: top;
+    }
+    th { background: #0b1220; color: #dbeafe; }
+    td code, .code-inline {
+      background: var(--code);
+      border: 1px solid #24324a;
+      border-radius: 6px;
+      padding: 1px 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9rem;
+      color: #bae6fd;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .key {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 10px;
+      background: #0b1220;
+      font-size: 0.9rem;
+    }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .footer {
+      margin-top: 26px;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <h1>SpotBaller Parallel Architecture Plan</h1>
+    <p class="muted">
+      Decision-first design doc for improving throughput while preserving tracker correctness and output parity.
+    </p>
+
+    <section class="card">
+      <h2>1) Why Parallelize Carefully</h2>
+      <p>
+        The pipeline has temporal dependencies: tracker state at frame <span class="code-inline">N</span> depends on frame
+        <span class="code-inline">N-1</span>. This means not every stage should be parallelized. We target independent or
+        pipeline-friendly work first.
+      </p>
+      <div class="legend">
+        <div class="key"><span class="ok">Safe first:</span> decode prefetch, output writing, independent OCR tasks</div>
+        <div class="key"><span class="warn">Caution:</span> tracker update order, GPU worker fan-out, memory pressure</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2) Current Flow (Conceptual)</h2>
+      <div class="flow">
+        <div class="node">Read frame from video</div>
+        <div class="arrow">↓</div>
+        <div class="node">Preprocess + detect players/ball</div>
+        <div class="arrow">↓</div>
+        <div class="node">Update tracker (stateful, ordered)</div>
+        <div class="arrow">↓</div>
+        <div class="node">Optional pretrained stack (team/OCR/action hints)</div>
+        <div class="arrow">↓</div>
+        <div class="node">Render annotated frame + write outputs + aggregate stats</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3) Proposed Parallel Target Architecture</h2>
+      <div class="grid">
+        <div class="node">
+          <h3>A. Producer Thread</h3>
+          <p>Decodes and preprocesses frames into a bounded queue.</p>
+          <div class="pill">I/O-bound</div>
+          <div class="pill">Low risk</div>
+        </div>
+        <div class="node">
+          <h3>B. Main Ordered Worker</h3>
+          <p>Runs detection + tracker update in strict frame order.</p>
+          <div class="pill">Correctness-critical</div>
+          <div class="pill">No reordering</div>
+        </div>
+        <div class="node">
+          <h3>C. Optional Task Pool</h3>
+          <p>Runs independent crop-level extras (OCR/action hints) with bounded workers.</p>
+          <div class="pill">Conditional</div>
+          <div class="pill">CPU/GPU dependent</div>
+        </div>
+        <div class="node">
+          <h3>D. Writer Thread</h3>
+          <p>Handles annotated video writes + periodic JSON/stat flushes asynchronously.</p>
+          <div class="pill">Removes output stalls</div>
+          <div class="pill">Low risk</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>4) Rollout Phases and Gates</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Phase</th>
+            <th>Changes</th>
+            <th>Expected Gain</th>
+            <th>Go/No-Go Gate</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Phase 1: Baseline</td>
+            <td>Instrument stage timers and throughput metrics.</td>
+            <td>Observability only</td>
+            <td>Proceed only with clear bottleneck signal.</td>
+          </tr>
+          <tr>
+            <td>Phase 2: Low-Risk Parallel</td>
+            <td>Add frame prefetch queue + async writer queue.</td>
+            <td>~15-30% typical</td>
+            <td>No output regressions, stable memory.</td>
+          </tr>
+          <tr>
+            <td>Phase 3: Conditional Pool</td>
+            <td>Parallelize independent extras (OCR/hints) when dominant.</td>
+            <td>Workload-dependent</td>
+            <td>Deterministic merge, bounded VRAM/CPU usage.</td>
+          </tr>
+          <tr>
+            <td>Phase 4: Hardening</td>
+            <td>Add flags, backpressure, shutdown/drain semantics, stress tests.</td>
+            <td>Reliability</td>
+            <td>No deadlocks, clean cancellation, artifact completeness.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>5) Guardrails</h2>
+      <ul>
+        <li>Tracker and core stats remain ordered by frame index.</li>
+        <li>Bound all queues to avoid unbounded RAM growth.</li>
+        <li>Feature-flag each parallel component for safe rollback.</li>
+        <li>Graceful stop: set stop event, drain queues, flush final artifacts.</li>
+        <li>Benchmark on <code>/basketball_analysis/input_videos/video_1.mp4</code> for before/after comparison.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>6) Decision Options</h2>
+      <div class="grid">
+        <div class="node">
+          <h3>Conservative</h3>
+          <p>Implement Phases 1-2 only.</p>
+          <p class="muted">Best balance of gain vs complexity.</p>
+        </div>
+        <div class="node">
+          <h3>Balanced</h3>
+          <p>Implement Phases 1-3 with bounded extra-task pool.</p>
+          <p class="muted">Higher gain if OCR/extras are bottleneck.</p>
+        </div>
+        <div class="node">
+          <h3>Aggressive</h3>
+          <p>Broader concurrency and GPU scheduling optimization.</p>
+          <p class="muted">Most complex, highest regression risk.</p>
+        </div>
+      </div>
+    </section>
+
+    <p class="footer">
+      Next step if approved: map this plan into file-level implementation tasks and tests in SpotBaller.
+    </p>
+  </main>
+</body>
+</html>

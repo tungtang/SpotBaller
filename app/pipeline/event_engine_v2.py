@@ -19,8 +19,16 @@ class StatsEventEngineV2:
     This remains heuristic for single-camera input, but keeps stat schema stable.
     """
 
-    def __init__(self, frame_width: int = 1280) -> None:
+    def __init__(
+        self,
+        frame_width: int = 1280,
+        frame_height: int = 720,
+        shot_cooldown_frames: int = 24,
+    ) -> None:
         self.frame_width = frame_width
+        self.frame_height = max(1, frame_height)
+        self._shot_cooldown_frames = max(0, shot_cooldown_frames)
+        self._last_shot_event_frame: int | None = None
         self.possession = PossessionState()
         self.frame_presence: defaultdict[int, int] = defaultdict(int)
         self.touches: defaultdict[int, int] = defaultdict(int)
@@ -79,33 +87,43 @@ class StatsEventEngineV2:
         self.possession.last_frame = frame_index
 
         if rims:
-            rim = rims[0]
+            rim = min(
+                rims,
+                key=lambda r: ((r.x1 + r.x2) / 2 - bx) ** 2 + ((r.y1 + r.y2) / 2 - by) ** 2,
+            )
             rx1, ry1, rx2, ry2 = rim.x1, rim.y1, rim.x2, rim.y2
-            in_rim_zone = rx1 <= bx <= rx2 and (ry1 - 25) <= by <= (ry2 + 25)
+            margin_y = max(12.0, 0.04 * float(self.frame_height))
+            in_rim_zone = rx1 <= bx <= rx2 and (ry1 - margin_y) <= by <= (ry2 + margin_y)
             descending = self.last_ball_y is not None and by > self.last_ball_y
 
             if in_rim_zone and self.possession.player_id is not None:
-                shooter = self.possession.player_id
-                self.last_shooter = shooter
-                self.fga[shooter] += 1
-                events.append(Event(frame_index, "shot_attempt", shooter, 0.65))
+                cooldown_ok = (
+                    self._last_shot_event_frame is None
+                    or (frame_index - self._last_shot_event_frame) >= self._shot_cooldown_frames
+                )
+                if cooldown_ok:
+                    shooter = self.possession.player_id
+                    self.last_shooter = shooter
+                    self.fga[shooter] += 1
+                    events.append(Event(frame_index, "shot_attempt", shooter, 0.65))
 
-                is_three = self._is_three_point_attempt(nearest)
-                if is_three:
-                    self.three_pa[shooter] += 1
-
-                if descending:
-                    self.fgm[shooter] += 1
+                    is_three = self._is_three_point_attempt(nearest)
                     if is_three:
-                        self.three_pm[shooter] += 1
-                    if self.last_passer is not None and self.last_passer != shooter:
-                        self.ast[self.last_passer] += 1
-                    events.append(Event(frame_index, "shot_made", shooter, 0.55))
-                else:
-                    self.dreb[nearest.track_id] += 1
-                    if shooter != nearest.track_id:
-                        self.blk[nearest.track_id] += 1
-                    events.append(Event(frame_index, "shot_missed", shooter, 0.45))
+                        self.three_pa[shooter] += 1
+
+                    if descending:
+                        self.fgm[shooter] += 1
+                        if is_three:
+                            self.three_pm[shooter] += 1
+                        if self.last_passer is not None and self.last_passer != shooter:
+                            self.ast[self.last_passer] += 1
+                        events.append(Event(frame_index, "shot_made", shooter, 0.55))
+                    else:
+                        self.dreb[nearest.track_id] += 1
+                        if shooter != nearest.track_id:
+                            self.blk[nearest.track_id] += 1
+                        events.append(Event(frame_index, "shot_missed", shooter, 0.45))
+                    self._last_shot_event_frame = frame_index
 
         self.last_ball_y = by
         return events

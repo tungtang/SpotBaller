@@ -1,3 +1,6 @@
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "integration: full pipeline / optional downloads (YOLO weights); slower than unit tests.",
+]

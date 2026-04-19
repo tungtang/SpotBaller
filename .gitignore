@@ -35,6 +35,9 @@ models/**/*.pt
 basketball_analysis/input_videos/*
 !basketball_analysis/input_videos/.gitkeep
 
+# GCP deploy artifact (generated locally)
+infra/gcp/spotballer-deploy.tgz
+
 # OS & editors
 .DS_Store
 .localized

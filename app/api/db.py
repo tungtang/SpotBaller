@@ -73,3 +73,17 @@ def get_job_status_counts() -> dict[str, int]:
     with SessionLocal() as session:
         rows = session.query(JobRecord.status, func.count(JobRecord.job_id)).group_by(JobRecord.status).all()
         return {status: int(count) for status, count in rows}
+
+
+def delete_job_row(job_id: str) -> bool:
+    """Remove job row from DB. Returns True if a row was deleted."""
+    try:
+        with SessionLocal() as session:
+            row = session.get(JobRecord, job_id)
+            if row is None:
+                return False
+            session.delete(row)
+            session.commit()
+            return True
+    except Exception:
+        return False
