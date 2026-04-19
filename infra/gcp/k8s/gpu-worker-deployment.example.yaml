@@ -1,0 +1,43 @@
+# Example GKE Deployment for SpotBaller GPU worker (adjust project, image, SA, pool).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spotballer-gpu-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spotballer-gpu-worker
+  template:
+    metadata:
+      labels:
+        app: spotballer-gpu-worker
+    spec:
+      serviceAccountName: spotballer-worker  # Workload Identity → GCS + Pub/Sub subscriber
+      nodeSelector:
+        cloud.google.com/gke-accelerator: nvidia-tesla-t4  # or L4 / A100 per pool
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: worker
+          image: REGION-docker.pkg.dev/PROJECT/spotballer/gcp:latest
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+            requests:
+              nvidia.com/gpu: "1"
+              memory: "8Gi"
+              cpu: "2"
+          env:
+            - name: SPOTBALLER_CONTAINER_ROLE
+              value: "worker"
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "PROJECT_ID"
+            - name: SPOTBALLER_GCS_BUCKET
+              value: "YOUR_BUCKET"
+            - name: SPOTBALLER_PUBSUB_SUBSCRIPTION
+              value: "video-workers"
+            - name: SPOTBALLER_PUBSUB_MAX_MESSAGES
+              value: "1"

@@ -1,0 +1,21 @@
+# Unified image: FastAPI (role=api) or Pub/Sub GPU worker (role=worker, default).
+# Build: docker build -f infra/gcp/Dockerfile.gpu-worker -t spotballer:gcp .
+# Worker: GKE + nvidia.com/gpu + Workload Identity. API: CPU pool, no GPU (override resources).
+
+FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-glx libglib2.0-0 ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt requirements-gcp.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-gcp.txt
+
+COPY app ./app
+COPY scripts ./scripts
+
+ENV PYTHONUNBUFFERED=1
+# Default: worker. API pods: set SPOTBALLER_CONTAINER_ROLE=api (see k8s examples).
+CMD ["python", "-m", "app.gcp.container_main"]

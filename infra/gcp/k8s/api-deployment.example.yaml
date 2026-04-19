@@ -1,0 +1,51 @@
+# Same image as the GPU worker; runs FastAPI only (CPU node pool recommended).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spotballer-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spotballer-api
+  template:
+    metadata:
+      labels:
+        app: spotballer-api
+    spec:
+      serviceAccountName: spotballer-api # Workload Identity → GCS + Pub/Sub publisher
+      containers:
+        - name: api
+          image: REGION-docker.pkg.dev/PROJECT/spotballer/gcp:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: SPOTBALLER_CONTAINER_ROLE
+              value: "api"
+            - name: SPOTBALLER_GCP_PROJECT
+              value: "PROJECT_ID"
+            - name: SPOTBALLER_GCS_BUCKET
+              value: "YOUR_BUCKET"
+            - name: SPOTBALLER_PUBSUB_TOPIC
+              value: "video-jobs"
+            - name: SPOTBALLER_API_PORT
+              value: "8000"
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1"
+            limits:
+              memory: "4Gi"
+              cpu: "2"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spotballer-api
+spec:
+  selector:
+    app: spotballer-api
+  ports:
+    - port: 80
+      targetPort: 8000
+  type: ClusterIP
